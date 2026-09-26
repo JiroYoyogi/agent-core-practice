@@ -37,14 +37,17 @@ CLI / API ────────┤
 現在のSTEP：
 
 ```text
-STEP 1
+STEP 2
 ```
 
 ステータス：
 
 ```text
-未着手
+未着手（STEP 1完了・別タスクで開始予定）
 ```
+
+最終更新：2026-09-26。STEP 1のAWS上での動作確認は開発者が実施し、成功を確認済みです。
+現在の構成の概要は `README.md`、次のタスクへの引き継ぎはSTEP 2の「開始時の引き継ぎ」を参照してください。
 
 ---
 
@@ -68,7 +71,8 @@ Claude
 
 ## タスク例
 
-エージェントにローカルまたはcloneされたリポジトリを変更させます。
+Runtime内の `/tmp/coding-agent-XXXXXX/` に作成した練習用Gitリポジトリを変更させます。
+このプロジェクト自体のリポジトリとは別物です。GitHubからのcloneはまだ行いません。
 
 例：
 
@@ -88,12 +92,12 @@ README.mdに「プロジェクト概要」セクションを追加する。
 
 ## 完了条件
 
-* [ ] AgentCore Runtimeの実行環境を作成した
-* [ ] AgentCore経由でClaudeを呼び出せる
-* [ ] エージェントがRepositoryのファイルを確認できる
-* [ ] エージェントが `README.md` を変更できる
-* [ ] Runtimeのライフサイクルを説明できる
-* [ ] 同じ実行を再現できる
+* [x] AgentCore Runtimeの実行環境を作成した
+* [x] AgentCore経由でClaudeを呼び出せる
+* [x] エージェントがRepositoryのファイルを確認できる
+* [x] エージェントが `README.md` を変更できる
+* [x] Runtimeのライフサイクルを説明できる
+* [x] 同じ実行を再現できる
 
 ## まだ実装しないもの
 
@@ -108,6 +112,70 @@ README.mdに「プロジェクト概要」セクションを追加する。
 ---
 
 # STEP 2 — GitHub IssueからAgentCoreを呼び出す
+
+## 開始時の引き継ぎ
+
+### 進め方
+
+* 最初に `AGENTS.md`、このファイル、`README.md` と現在の実装を読む。
+* 実装の主体は開発者。Codexは先生・相談相手として、概念、小さな手順、写経用コードやコピペ用コマンドを提示する。明示的な依頼なしに実装を代行しない。
+* STEP 2では既存Runtimeへの入口だけを追加する。編集対象は引き続きRuntime内の練習用READMEとし、GitHubリポジトリのclone・変更のcommit・push・PR作成はSTEP 3で扱う。
+
+### 引き継ぐ実装と設定
+
+| 項目 | 現在の内容 |
+| --- | --- |
+| 開発環境 | Dev ContainerでNode.js 22とAWS CLIを使用。Mac側はNode.js 24 |
+| AWSリージョン | `ap-northeast-1` |
+| モデル | Claude Sonnet 4.6。Converse APIのモデルIDは `global.anthropic.claude-sonnet-4-6` |
+| HTTPサーバー | `src/server.ts`。Node.js標準HTTP、ポート8080、`GET /ping` と `POST /invocations` |
+| エージェント | `src/coding-agent.ts`。Claudeのツール要求に応じてREADMEを読み書きし、結果をモデルへ返す |
+| 作業領域・Git | `src/workspace.ts`、`src/git.ts`。一時ディレクトリにGitリポジトリと初期commitを作成 |
+| デプロイ | TypeScriptをビルドし、`dist/`・本番依存の `node_modules/`・`package.json` をZIP化してS3へ配置。Runtimeを作成・更新 |
+| Runtime設定 | `NODE_22`、エントリーポイント `dist/server.js`。設定例は `infra/*.example.json` |
+| 認証 | 呼び出し元のAWS認証とRuntime実行ロールを分離。Runtime実行ロールでBedrockを呼び出す |
+
+Sonnet 5はこのアカウントで呼び出せなかったため、動作確認済みのSonnet 4.6で継続する。
+
+既存のリクエスト形式：
+
+```json
+{"prompt":"README.mdに前提条件セクションを追加してください。"}
+```
+
+* AWS上ではAgentCore Runtimeの呼び出しAPIを利用する。Actionsからコンテナのポート8080へ直接接続する構成にはしない。
+* 成功時は `summary`、`before`、`after`、`changed`、`diff`、`workspace` を返す。
+* `before` / `after` / `changed` は今回の依頼に対応する。`diff` は初期commitからの累積差分であり、編集ごとのcommitは行わない。
+* `{"action":"check_environment"}` でNode.js・OS・Gitの診断ができる。AWS上でNode.js 22・Linux arm64・Gitの利用を確認済み。
+* リクエスト本文は16 KiB、READMEは32 KiBまで。モデル呼び出しは1依頼につき最大8回。同一プロセスで編集中の追加依頼は409を返す。
+* Claudeに公開しているツールは `read_readme` / `write_readme` のみ。任意のファイル操作やshell実行は公開していない。
+
+### セッションについて確認済みのこと
+
+* 同じRuntimeセッションの実行環境が存続している間は、READMEの変更と練習用Gitリポジトリを引き継げる。
+* 実装はNode.jsプロセス内で作業領域の初期化結果を保持する。ローカルHTTPサーバー自体にセッションID別の作業領域管理はない。
+* 会話履歴は依頼ごとに作り直す。引き継ぐのはファイルの状態であり、過去の会話ではない。
+* Runtimeセッションを停止し、同じIDで再度呼び出した場合にも、作業領域は新しく作成されREADMEは初期状態に戻ることをAWS上で確認済み。
+* セッションIDを控えるだけではファイルは永続化されない。Runtime内の `/tmp` と `.git` を永続ストレージとして扱わない。
+
+### 次のタスクで最初に行うこと
+
+1. GitHub側の対象リポジトリと公開範囲を確認する。引き継ぎ時点ではローカルGit管理済みだが、`git remote -v` に登録はない。
+2. 起動条件を決める。まずは専用ラベルの付与を候補とし、誰が起動できるか、再実行時にどのセッションを使うかを整理する。
+3. GitHub ActionsからAWSへ認証する方法を設計する。OIDCによる一時認証を第一候補とし、対象リポジトリ等に信頼条件を絞る。Actions用の呼び出しロールと既存Runtime実行ロールを区別する。
+4. 既存RuntimeのARN・呼び出すエンドポイント等を確認し、必要最小限の呼び出し権限を決める。実値はローカル設定やAWSから確認し、このドキュメントには転記しない。
+5. Issue本文を既存の `prompt` へ変換する最小Workflowを作る。Issue本文をshellコードに直接埋め込まず、JSONとして安全に受け渡す。
+6. 練習用READMEへの変更結果と差分をActions側で確認する。認証失敗・Runtime呼び出し失敗・エージェント処理失敗を区別できるようにする。
+
+上記の起動条件・認証・セッション方針はSTEP 2でこれから決める事項であり、未実装。
+この段階でGitHubへの書き込み権限やRuntimeへのGitHub認証情報は不要。
+
+### ローカル設定と再開時の注意
+
+* `infra/*.example.json` は共有用テンプレート。実値入りのJSON、`.deploy/`、認証情報はGit管理対象外。
+* 別の環境で始める場合は、AWS認証と実値入り設定を別途準備する。既存Runtimeを利用し、不要な再作成はしない。
+* 再デプロイ前にはAWS上の現在のRuntime設定・バージョン・S3キーを確認する。テンプレートの `v1` / `v3` を最新の配置先と決めつけない。
+* ローカルの確認コマンドは `npm run typecheck`、`npm run build`。STEP 1のCLI呼び出し確認をもって、STEP 5の複数入口の整備まで完了したとは扱わない。
 
 ## ゴール
 
@@ -508,13 +576,17 @@ Pull Request
 ステータス：
 
 ```text
-未着手
+完了（2026-09-26）
 ```
 
 メモ：
 
 ```text
--
+- Runtimeへのデプロイ・再デプロイ、CLI経由のClaude呼び出しを確認。
+- 練習用READMEの読み書きとGit差分の返却を確認。
+- 同一セッションでの編集引き継ぎと、停止後の初期化をAWS上で確認。
+- README.mdに現在の構成・デプロイ方法・認証・確認結果を記録。
+- プロジェクト自体をGit管理し、環境固有設定をexampleファイルと分離。
 ```
 
 ## STEP 2
@@ -528,7 +600,9 @@ Pull Request
 メモ：
 
 ```text
--
+- STEP 1からの引き継ぎを記録済み。別タスクで開始する。
+- 最初にGitHub側の対象リポジトリ・起動条件・AWS認証を確認する。
+- Workflow、Actions用AWSロール、GitHub連携は未実装。
 ```
 
 ## STEP 3
