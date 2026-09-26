@@ -1,0 +1,35 @@
+name: Issue Agent
+
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+jobs:
+  inspect-issue:
+    if: >-
+      github.event.label.name == 'run-agent' &&
+      github.actor == 'JiroYoyogi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Convert issue body to request
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const event = JSON.parse(
+            fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')
+          );
+
+          const prompt = event.issue.body;
+
+          if (typeof prompt !== 'string' || !prompt.trim()) {
+            throw new Error('Issue本文が空です。');
+          }
+
+          console.log('Issue番号:', event.issue.number);
+          console.log(JSON.stringify({ prompt }));
+          NODE
