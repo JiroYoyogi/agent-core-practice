@@ -37,17 +37,17 @@ CLI / API ────────┤
 現在のSTEP：
 
 ```text
-STEP 2
+STEP 3
 ```
 
 ステータス：
 
 ```text
-未着手（STEP 1完了・別タスクで開始予定）
+未着手（STEP 2完了・STEP 3開始待ち）
 ```
 
-最終更新：2026-09-26。STEP 1のAWS上での動作確認は開発者が実施し、成功を確認済みです。
-現在の構成の概要は `README.md`、次のタスクへの引き継ぎはSTEP 2の「開始時の引き継ぎ」を参照してください。
+最終更新：2026-09-26。STEP 2のラベル起動・コメント起動によるAWS上での編集成功を開発者が確認済みです。
+現在の構成と再現手順は `README.md`、次のタスクへの引き継ぎはSTEP 3の「開始時の引き継ぎ」を参照してください。
 
 ---
 
@@ -112,6 +112,8 @@ README.mdに「プロジェクト概要」セクションを追加する。
 ---
 
 # STEP 2 — GitHub IssueからAgentCoreを呼び出す
+
+完了（2026-09-26）。以下の開始時の引き継ぎはSTEP 1完了時点の記録です。最新の実装・設定は `README.md` と末尾の進捗ログを参照してください。
 
 ## 開始時の引き継ぎ
 
@@ -212,12 +214,13 @@ README.mdに「前提条件」セクションを追加してください。
 
 ## 完了条件
 
-* [ ] Issue作成またはラベル付与でWorkflowを開始できる
-* [ ] GitHub ActionsがIssue本文を取得できる
-* [ ] GitHub ActionsからAgentCoreを呼び出せる
-* [ ] ClaudeがIssue本文を受け取れる
-* [ ] ClaudeがIssue本文をタスクとして扱える
-* [ ] 呼び出し失敗時に原因を確認できる
+* [x] Issue作成またはラベル付与でWorkflowを開始できる
+* [x] GitHub ActionsがIssue本文を取得できる
+* [x] GitHub ActionsからAgentCoreを呼び出せる
+* [x] ClaudeがIssue本文を受け取れる
+* [x] ClaudeがIssue本文をタスクとして扱える
+* [x] 呼び出し失敗時に原因を確認できる
+* [x] 新規Issueコメントの `/agent ` コマンドからも起動できる
 
 ## まだ実装しないもの
 
@@ -229,6 +232,27 @@ README.mdに「前提条件」セクションを追加してください。
 ---
 
 # STEP 3 — コーディングエージェントにPull Requestを作らせる
+
+## 開始時の引き継ぎ
+
+* 実装の主体は開発者。Codexはレビュー、概念説明、小さなコード例・コマンドで支援する。
+* 最初に `AGENTS.md`、`README.md`、本ファイル、現在の実装を読む。
+* STEP 2の入口は実装済み。ラベル起動ではIssue本文、コメント起動では `/agent ` を除いたコメント本文を `prompt` にする。
+* 入口の対象は `JiroYoyogi/agent-core-practice-target`。STEP 2の作業ブランチは `codex/step2`。STEP 3を始める前に、現在のデフォルトブランチ、STEP 2の取り込み状況、PRのベースブランチを確認する。
+* ローカルGit操作はMac側、編集・ビルド・AWS CLIはDev Container側で行う。STEP 3には専用作業ブランチを用意する。
+* OIDC認証と対象Runtimeの呼び出しは動作確認済み。Secrets / Variablesとロールの役割は `README.md` を参照。実値はGitHub・AWSの設定から確認する。
+* 現在のエージェントはRuntime内の練習用リポジトリを扱う。GitHub clone・GitHub認証・変更のcommit / push・PR作成は未実装。
+* RuntimeのGitは初期commitと差分取得に使用。Actionsは実行ごとに新しいセッションを生成し、過去の編集や会話を引き継がない。
+
+### 最初に整理すること
+
+1. エージェントが変更するリポジトリとPRのベースブランチを確定する。Issueの入口と編集対象が同じかも明示する。
+2. GitHubへの認証方法（GitHub Appなど）、Credentialの保管場所・取得方法・有効期間を決める。既存のGitHub→AWS OIDC認証とは別の認証である。
+3. GitHub権限は対象リポジトリに絞り、contents / pull requestsの必要な権限を整理する。管理権限や任意のActions変更権限を先に付けない。
+4. cloneからREADME編集、差分確認、専用ブランチへのcommit / push、PR作成までを小さく分けて確認する。mainへ直接pushしない。
+5. 失敗時の後始末と再実行時のブランチ・PR重複の扱いを決める。
+
+ここに記載した項目はSTEP 3の計画であり、実装済みではない。
 
 ## ゴール
 
@@ -594,15 +618,25 @@ Pull Request
 ステータス：
 
 ```text
-未着手
+完了（2026-09-26）
 ```
 
 メモ：
 
 ```text
-- STEP 1からの引き継ぎを記録済み。別タスクで開始する。
-- 最初にGitHub側の対象リポジトリ・起動条件・AWS認証を確認する。
-- Workflow、Actions用AWSロール、GitHub連携は未実装。
+- プライベートのagent-core-practice-targetを入口として、issue-agent.ymlを実装。
+- run-agentラベルによるIssue本文の処理と、/agent コメントによる処理の成功を開発者が確認。
+- JiroYoyogiの操作に限定し、PRコメントを除外する条件を実装。
+- GitHub OIDCによるActions専用ロールの利用と、STSによるIdentity確認に成功。
+- 信頼ポリシーのsubを実際の値に合わせて認証エラーを解決。
+- Runtime本体・エンドポイントを対象にInvokeAgentRuntime権限を設定。
+- Repository secretsとvariablesの参照先、およびエンドポイントARNと名前の違いを確認。
+- 環境診断の呼び出し後、Issue由来のpromptで練習用READMEを編集し、結果・差分を確認。
+- 本文をイベントJSONから読み取り、16 KiB以内のrequest.jsonとして送信。
+- 実行ごとに新しいUUIDセッションを使用。前回の編集結果・会話は引き継がない。
+- README.mdに構成・設定・再現手順・エラー確認方法を記録。
+- 通常コメント・PRコメント・他ユーザーの除外条件は実装済み。実機テスト結果は未記録。
+- GitHubリポジトリの変更、commit / push、PR作成はSTEP 3で扱う。
 ```
 
 ## STEP 3
