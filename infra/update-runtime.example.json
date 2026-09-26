@@ -1,0 +1,26 @@
+{
+  "agentRuntimeId": "<RUNTIME_ID>",
+  "agentRuntimeArtifact": {
+    "codeConfiguration": {
+      "code": {
+        "s3": {
+          "bucket": "<DEPLOY_BUCKET_NAME>",
+          "prefix": "coding-agent/v3/deployment.zip"
+        }
+      },
+      "runtime": "NODE_22",
+      "entryPoint": ["dist/server.js"]
+    }
+  },
+  "roleArn": "arn:aws:iam::<ACCOUNT_ID>:role/AgentCorePracticeRuntimeRole",
+  "networkConfiguration": {
+    "networkMode": "PUBLIC"
+  },
+  "protocolConfiguration": {
+    "serverProtocol": "HTTP"
+  },
+  "lifecycleConfiguration": {
+    "idleRuntimeSessionTimeout": 300,
+    "maxLifetime": 1800
+  }
+}
