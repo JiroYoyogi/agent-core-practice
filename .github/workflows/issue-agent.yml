@@ -33,6 +33,15 @@ jobs:
 
           console.log('Issue番号:', event.issue.number);
           console.log(JSON.stringify({ prompt }));
+
+          const payload = JSON.stringify({ prompt });
+
+          if (Buffer.byteLength(payload, 'utf8') > 16 * 1024) {
+            throw new Error('リクエストがRuntimeの上限16 KiBを超えています。');
+          }
+
+          fs.writeFileSync('request.json', payload, 'utf8');
+
           NODE
 
       - name: Configure AWS credentials
@@ -44,7 +53,7 @@ jobs:
       - name: Check AWS identity
         run: aws sts get-caller-identity
 
-      - name: Check AgentCore environment
+      - name: Invoke AgentCore with issue body
         env:
           AGENT_RUNTIME_ARN: ${{ vars.AGENT_RUNTIME_ARN }}
           AGENT_RUNTIME_ENDPOINT: ${{ vars.AGENT_RUNTIME_ENDPOINT }}
@@ -62,8 +71,7 @@ jobs:
             --qualifier "$AGENT_RUNTIME_ENDPOINT" \
             --runtime-session-id "$SESSION_ID" \
             --content-type application/json \
-            --cli-binary-format raw-in-base64-out \
-            --payload '{"action":"check_environment"}' \
+            --payload fileb://request.json \
             --cli-read-timeout 180 \
             response.json
 
