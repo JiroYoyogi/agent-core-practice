@@ -4,7 +4,8 @@ on:
   issues:
     types: [labeled]
 
-permissions: {}
+permissions:
+  id-token: write
 
 jobs:
   inspect-issue:
@@ -33,3 +34,12 @@ jobs:
           console.log('Issue番号:', event.issue.number);
           console.log(JSON.stringify({ prompt }));
           NODE
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-1
+
+      - name: Check AWS identity
+        run: aws sts get-caller-identity
