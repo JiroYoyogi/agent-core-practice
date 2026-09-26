@@ -43,3 +43,28 @@ jobs:
 
       - name: Check AWS identity
         run: aws sts get-caller-identity
+
+      - name: Check AgentCore environment
+        env:
+          AGENT_RUNTIME_ARN: ${{ vars.AGENT_RUNTIME_ARN }}
+          AGENT_RUNTIME_ENDPOINT: ${{ vars.AGENT_RUNTIME_ENDPOINT }}
+        run: |
+          set -euo pipefail
+
+          : "${AGENT_RUNTIME_ARN:?Repository variableが未設定です}"
+          : "${AGENT_RUNTIME_ENDPOINT:?Repository variableが未設定です}"
+
+          SESSION_ID=$(node -p "require('node:crypto').randomUUID()")
+
+          aws bedrock-agentcore invoke-agent-runtime \
+            --region ap-northeast-1 \
+            --agent-runtime-arn "$AGENT_RUNTIME_ARN" \
+            --qualifier "$AGENT_RUNTIME_ENDPOINT" \
+            --runtime-session-id "$SESSION_ID" \
+            --content-type application/json \
+            --cli-binary-format raw-in-base64-out \
+            --payload '{"action":"check_environment"}' \
+            --cli-read-timeout 180 \
+            response.json
+
+          cat response.json 
