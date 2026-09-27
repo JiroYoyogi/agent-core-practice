@@ -1,6 +1,11 @@
+import { PublishError } from "./publish-readme.js";
 import { createServer, type ServerResponse } from "node:http";
 import { runCodingAgent } from "./coding-agent.js";
 import { checkEnvironment } from "./environment.js";
+import { createPrivateKey } from "node:crypto";
+import { getGitHubPrivateKey } from "./github-secret.js";
+import { checkGitHubAccess } from "./github.js";
+import { checkGitHubClone } from "./workspace.js";
 
 function sendJson(
   res: ServerResponse,
@@ -80,6 +85,82 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "action" in body &&
+      body.action === "check_github_secret"
+    ) {
+      try {
+        const pem = await getGitHubPrivateKey();
+        const key = createPrivateKey(pem);
+
+        if (key.asymmetricKeyType !== "rsa") {
+          throw new Error("RSA秘密鍵ではありません。");
+        }
+
+        console.log("GitHub App秘密鍵の取得・形式確認に成功しました。");
+        sendJson(res, 200, { ok: true });
+      } catch (error) {
+        // 秘密鍵やSDKのレスポンス全体は出力しない
+        const errorType =
+          error instanceof Error ? error.name : "UnknownError";
+
+        console.error("GitHub App秘密鍵の確認に失敗:", errorType);
+
+        sendJson(res, 500, {
+          ok: false,
+          error: "GitHub App秘密鍵の取得または形式確認に失敗しました。",
+          errorType,
+        });
+      }
+
+      return;
+    }
+
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "action" in body &&
+      body.action === "check_github_access"
+    ) {
+      try {
+        const result = await checkGitHubAccess();
+        sendJson(res, 200, result);
+      } catch (error) {
+        const errorType =
+          error instanceof Error ? error.name : "UnknownError";
+
+        console.error("GitHubアクセス確認に失敗:", errorType);
+
+        sendJson(res, 500, {
+          ok: false,
+          error: "GitHubアクセスの確認に失敗しました。",
+          errorType,
+        });
+      }
+
+      return;
+    }
+
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "action" in body &&
+      body.action === "check_github_clone"
+    ) {
+      try {
+        const result = await checkGitHubClone();
+        sendJson(res, 200, result);
+      } catch {
+        sendJson(res, 500, {
+          ok: false,
+          error: "GitHub cloneの確認に失敗しました。",
+        });
+      }
+      return;
+    }
+
     // 外部から届くデータは実行時にも検証する
     if (
       typeof body !== "object" ||
@@ -112,6 +193,16 @@ const server = createServer(async (req, res) => {
     }
 
   } catch (error) {
+    if (error instanceof PublishError) {
+      const result = {
+        status: "publish_failed", stage: error.stage, branch: error.branch,
+        commit: error.commit, pushState: error.pushState,
+        error: "公開に失敗しました。リモートブランチとPRの状態を確認してください。",
+      };
+      console.error("公開失敗:", result);
+      if (!res.headersSent && !res.destroyed) sendJson(res, 500, result);
+      return;
+    }
     // 詳細はサーバーのログに残す
     console.error("リクエストの処理に失敗しました:", error);
 

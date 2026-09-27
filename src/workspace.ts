@@ -1,40 +1,37 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, lstat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initializeRepository } from "./git.js";
+import { cloneGitHubRepository } from "./github-clone.js";
+import { repositoryConfig } from "./repository-config.js";
 
-type Workspace = {
+export type Workspace = {
   directory: string;
   readmePath: string;
+  source: Awaited<ReturnType<typeof cloneGitHubRepository>>;
 };
 
-// このNode.jsプロセスが動いている間、初期化結果を保持する
-let workspacePromise: Promise<Workspace> | undefined;
-
-async function createWorkspace(): Promise<Workspace> {
-  const directory = await mkdtemp(join(tmpdir(), "coding-agent-"));
-  const readmePath = join(directory, "README.md");
-
-  const initialReadme =
-    "# AgentCore Practice\n\n" +
-    "AgentCore上でコーディングエージェントを動かす学習プロジェクトです。\n";
-
-  await writeFile(readmePath, initialReadme, "utf8");
-  await initializeRepository(directory);
-
-  console.log("作業リポジトリを初期化しました:", directory);
-
-  return { directory, readmePath };
+// 同じプロセス・セッションでも、依頼ごとに新しいcloneを作る。
+export async function withWorkspace<T>(
+  task: (workspace: Workspace) => Promise<T>,
+  clone: typeof cloneGitHubRepository = cloneGitHubRepository,
+): Promise<T> {
+  const root = await mkdtemp(join(tmpdir(), "coding-agent-"));
+  const directory = join(root, "repository");
+  try {
+    const source = await clone(directory);
+    const readmePath = join(directory, repositoryConfig.allowedFile);
+    const info = await lstat(readmePath);
+    if (!info.isFile() || info.size > 32 * 1024) {
+      throw new Error("READMEは32 KiB以内の通常ファイルである必要があります。");
+    }
+    return await task({ directory, readmePath, source });
+  } finally {
+    // clone途中やモデル呼び出しの失敗時も、この依頼の領域だけを削除する。
+    await rm(root, { recursive: true, force: true });
+    console.log("作業領域を削除しました:", root);
+  }
 }
 
-export function getWorkspace(): Promise<Workspace> {
-  if (!workspacePromise) {
-    workspacePromise = createWorkspace().catch((error) => {
-      // 初期化に失敗した場合、次のリクエストで再試行できるようにする
-      workspacePromise = undefined;
-      throw error;
-    });
-  }
-
-  return workspacePromise;
+export async function checkGitHubClone() {
+  return withWorkspace(async ({ source }) => source);
 }

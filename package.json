@@ -7,13 +7,19 @@
     "dev": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "deploy": "node scripts/deploy.mjs",
+    "test:deploy": "node --test scripts/deploy.test.mjs",
+    "test:workspace": "tsx --test tests/workspace.test.ts",
+    "test:publish": "tsx --test tests/publish.test.ts",
+    "test:issue-response": "node --test scripts/issue-response.test.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.1139.0"
+    "@aws-sdk/client-bedrock-runtime": "^3.1139.0",
+    "@aws-sdk/client-secrets-manager": "^3.1141.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

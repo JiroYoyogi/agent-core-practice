@@ -1,13 +1,16 @@
 import {
   BedrockRuntimeClient,
   ConverseCommand,
+  type ConverseCommandOutput,
   type ContentBlock,
   type Message,
   type Tool,
 } from "@aws-sdk/client-bedrock-runtime";
 import { readFile, writeFile } from "node:fs/promises";
 import { getReadmeDiff } from "./git.js";
-import { getWorkspace } from "./workspace.js";
+import { withWorkspace, type Workspace } from "./workspace.js";
+import { publishReadme } from "./publish-readme.js";
+import { cloneGitHubRepository } from "./github-clone.js";
 
 
 const client = new BedrockRuntimeClient({
@@ -49,12 +52,35 @@ const tools: Tool[] = [
   },
 ];
 
-export async function runCodingAgent(prompt: string) {
+export async function runCodingAgent(
+  prompt: string,
+  {
+    clone = cloneGitHubRepository,
+    publish = publishReadme,
+    converse = (command: ConverseCommand): Promise<ConverseCommandOutput> => client.send(command),
+  } = {},
+) {
   if (!prompt.trim()) {
     throw new Error("依頼を入力してください。");
   }
 
-  const { directory: workspace, readmePath } = await getWorkspace();
+  const result = await withWorkspace(
+    async (workspace) => {
+      const edited = await editReadme(prompt, workspace, converse);
+      const published = await publish(workspace, edited.summary);
+      return { ...edited, ...published };
+    },
+    clone,
+  );
+  // withWorkspaceのfinallyが正常終了した後にのみ成功を返す。
+  return { ...result, workspaceRemoved: true };
+}
+
+async function editReadme(
+  prompt: string,
+  { directory: workspace, readmePath, source }: Workspace,
+  converse: (command: ConverseCommand) => Promise<ConverseCommandOutput>,
+) {
 
   // 今回の依頼を始める時点の内容
   const before = await readFile(readmePath, "utf8");
@@ -72,13 +98,13 @@ export async function runCodingAgent(prompt: string) {
 
   // 無限に呼び出し続けないよう、モデル呼び出し回数を制限する
   for (let turn = 0; turn < 8; turn++) {
-    const response = await client.send(
+    const response = await converse(
       new ConverseCommand({
         modelId: "global.anthropic.claude-sonnet-4-6",
         system: [
           {
             text:
-              "あなたは練習用READMEを編集するアシスタントです。" +
+              "あなたはGitHubから取得したREADMEを編集するアシスタントです。" +
               "変更前に必ずread_readmeで現在の内容を確認してください。" +
               "既存の内容を保ち、依頼された変更だけを行ってください。" +
               "保存後はread_readmeで結果を確認してください。" +
@@ -171,6 +197,9 @@ export async function runCodingAgent(prompt: string) {
         changed: before !== after,
         diff,
         workspace,
+        repository: source.repository,
+        baseBranch: source.branch,
+        baseCommit: source.commit,
       };
     }
 
